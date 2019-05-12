@@ -268,6 +268,8 @@ protected[actions] trait PrimitiveActions {
     waitForResponse: Option[FiniteDuration],
     cause: Option[ActivationId])(implicit transid: TransactionId): Future[Either[ActivationId, WhiskActivation]] = {
       
+      val context = UserContext(user)
+      
       val start = Instant.now(Clock.systemUTC())
       System.out.println (s"invoke projection")
       val JsObject(map) = payload.getOrElse(JsObject.empty)
@@ -319,14 +321,13 @@ protected[actions] trait PrimitiveActions {
           //~ sequenceLimits,
         duration = Some(end.getEpochSecond() - start.getEpochSecond()))
   
-      logging.debug(this, s"recording activation '${activation.activationId}'")
-      WhiskActivation.put(activationStore, activation)(transid, notifier = None) onComplete {
-        case Success(id) => logging.debug(this, s"recorded activation")
-        case Failure(t) =>
-          logging.error(
-            this,
-            s"failed to record activation ${activation.activationId} with error ${t.getLocalizedMessage}")
+      if (UserEvents.enabled) {
+        EventMessage.from(activation, s"recording activation '${activation.activationId}'", user.namespace.uuid) match {
+          case Success(msg) => UserEvents.send(producer, msg)
+          case Failure(t)   => logging.warn(this, s"activation event was not sent: $t")
+        }
       }
+      activationStore.storeAfterCheck(activation, context)(transid, notifier = None)
   
       Future.successful (Right(activation))
       
