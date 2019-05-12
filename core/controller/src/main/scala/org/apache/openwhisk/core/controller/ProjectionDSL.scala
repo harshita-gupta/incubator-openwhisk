@@ -5,7 +5,7 @@
 //complexPat ::= simplePat | simplePat . complexPat
 //simplePat ::= [n] | id | [str]
 
-package whisk.core.controller
+package org.apache.openwhisk.core.controller
 
 import scala.util.parsing.combinator._
 import scala.util.parsing.input.Positional
