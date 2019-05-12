@@ -301,7 +301,7 @@ protected[actions] trait PrimitiveActions {
   
       // create the whisk activation
       val activation = WhiskActivation(
-        namespace = user.namespace.toPath,
+        namespace = user.namespace.name.toPath,
         name = action.name,
         user.subject,
         activationId = activationIdFactory.make(),
