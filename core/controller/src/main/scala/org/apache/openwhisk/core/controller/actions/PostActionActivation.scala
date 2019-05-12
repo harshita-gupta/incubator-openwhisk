@@ -51,6 +51,25 @@ protected[core] trait PostActionActivation extends PrimitiveActions with Sequenc
     waitForResponse: Option[FiniteDuration],
     cause: Option[ActivationId])(implicit transid: TransactionId): Future[Either[ActivationId, WhiskActivation]] = {
     action.toExecutableWhiskAction match {
+      case None if action.exec.isInstanceOf[ProgramExecMetaData] =>
+        System.out.println ("PostActionActivation: invokeProgram")
+        val ProgramExecMetaData(components) = action.exec
+        invokeProgram(user, action, components, payload, waitForResponse, cause, topmost = true, 0).map(r => r._1)
+      case None if action.exec.isInstanceOf[AppExecMetaData] =>
+        System.out.println ("PostActionActivation: invokeApp")
+        invokeApp(user, action, payload, waitForResponse, cause)
+      case None if action.exec.isInstanceOf[ProjectionExecMetaData] =>
+        System.out.println ("PostActionActivation: invokeProjection")
+        val ProjectionExecMetaData(code) = action.exec
+        System.out.println ("After ProjectionExecMetaData")
+        System.out.println ("Code is $code")
+        invokeProjection(user, action, payload, waitForResponse, cause)
+      case None if action.exec.isInstanceOf[ForkExecMetaData] =>
+        System.out.println (s"PostActionActivation: invokeFork")
+        val ForkExecMetaData(components) = action.exec
+        System.out.println (s"After ProjectionExecMetaData")
+        System.out.println (s"Components are $components")
+        invokeFork(user, action, payload, waitForResponse, cause)
       // this is a topmost sequence
       case None =>
         val SequenceExecMetaData(components) = action.exec
