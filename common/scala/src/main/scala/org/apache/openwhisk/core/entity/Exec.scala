@@ -500,6 +500,7 @@ protected[core] object ExecMetaDataBase extends ArgNormalizer[ExecMetaDataBase] 
       case s @ SequenceExecMetaData(comp) =>
         JsObject("kind" -> JsString(s.kind), "components" -> comp.map(_.qualifiedNameWithLeadingSlash).toJson)
 
+      // These additions are just to print the object accurately w/ the right metadata.
       case s @ ProgramExecMetaData(comp) =>
         JsObject("kind" -> JsString(s.kind), "components" -> comp.map(_.qualifiedNameWithLeadingSlash).toJson)
       

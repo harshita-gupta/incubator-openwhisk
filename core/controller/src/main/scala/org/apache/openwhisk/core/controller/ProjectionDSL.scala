@@ -644,6 +644,7 @@ sealed class ProjectionDSL () {
           case e: Exception => throw new DSLInterpreterFieldNotFoundException (s"StringPattern $str not present in JsObject $mapJsObject")
         }
       }
+      
       case ContinuousPatterns (pattern1, pattern2) => interpretPattern (pattern2, interpretPattern (pattern1, jsValue))
       case DotPattern (pattern) => interpretPattern (pattern, jsValue)
       case _ => throw new IllegalArgumentException ("Not handling this pattern") 
