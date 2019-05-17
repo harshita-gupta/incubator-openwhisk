@@ -231,7 +231,7 @@ protected[core] case class ProjectionExecMetaData(code: String) extends ExecMeta
   override val kind = ExecMetaDataBase.PROJECTION
   override val deprecated = false  
   //override def size = action.size
- override def size = code.sizeInBytes
+  override def size = code.sizeInBytes
 }
 
 protected[core] case class ProjectionExec (code: String) extends Exec {
@@ -255,13 +255,13 @@ protected[core] case class ProgramExec(components: Vector[FullyQualifiedEntityNa
 
 protected[core] case class AppExecMetaData() extends ExecMetaDataBase {
  override val kind = ExecMetaDataBase.APP
- override val deprecated = false
+ override val deprecated = true
  override def size = 0.B
 }
 
 protected[core] case class AppExec () extends Exec {
  override val kind = Exec.APP
- override val deprecated = false
+ override val deprecated = true
  override def size = 0.B
 }
 
@@ -277,6 +277,20 @@ protected[core] case class ForkExec (components: Vector[FullyQualifiedEntityName
  override val deprecated = false
  //override def size = action.size
  override def size = components.map(_.size).reduceOption(_ + _).getOrElse(0.B)
+}
+
+// XXXdagular
+protected[core] case class DagularExecMetaData(code: String) extends ExecMetaDataBase {
+  override val kind = ExecMetaDataBase.DAGULAR
+  override val deprecated = false
+  override def size = code.sizeInBytes
+}
+
+// XXXdagular
+protected[core] case class DagularExec (code: String) extends Exec {
+  override val kind = Exec.DAGULAR
+  override val deprecated = false
+  override def size = code.sizeInBytes
 }
 
 
@@ -298,6 +312,7 @@ protected[core] object Exec extends ArgNormalizer[Exec] with DefaultJsonProtocol
   protected[core] val PROGRAM = "program"
   protected[core] val FORK = "fork"
   protected[core] val APP = "app"
+  protected[core] val DAGULAR = "dagular" // XXXdagular
 
   private def execManifests = ExecManifest.runtimesManifest
 
@@ -334,6 +349,10 @@ protected[core] object Exec extends ArgNormalizer[Exec] with DefaultJsonProtocol
                  
       case a @ AppExec() =>
         JsObject("kind" -> JsString(a.kind))
+      
+      // XXXdagular
+      case d @ DagularExec (code) =>
+        JsObject("kind" -> JsString(d.kind), "code" -> JsString(code))
         
 
       case b: BlackBoxExec =>
@@ -398,6 +417,14 @@ protected[core] object Exec extends ArgNormalizer[Exec] with DefaultJsonProtocol
         
         case Exec.APP =>
           AppExec()
+          
+        case Exec.DAGULAR =>
+          val schemaCode : String = obj.fields.get("code") match {
+            case Some(JsString(t)) => t
+            case Some(m) => throw new DeserializationException(s"'schema code must be string found $m")
+            case None => "."
+          }
+          DagularExec(schemaCode)
 
         case Exec.BLACKBOX =>
           val image: ImageName = obj.fields.get("image") match {
@@ -477,6 +504,7 @@ protected[core] object ExecMetaDataBase extends ArgNormalizer[ExecMetaDataBase] 
   protected[core] val PROGRAM = "program"
   protected[core] val FORK = "fork"
   protected[core] val APP = "app"
+  protected[core] val DAGULAR = "dagular" // XXXdagular
 
 
   private def execManifests = ExecManifest.runtimesManifest
@@ -511,6 +539,9 @@ protected[core] object ExecMetaDataBase extends ArgNormalizer[ExecMetaDataBase] 
       case a @ AppExecMetaData () =>
         JsObject("kind" -> JsString(a.kind))
       
+      case p @ DagularExecMetaData (code) =>
+        JsObject("kind" -> JsString(p.kind),
+                 "code" -> JsString(code))
 
       case b: BlackBoxExecMetaData =>
         val base =
@@ -581,8 +612,18 @@ protected[core] object ExecMetaDataBase extends ArgNormalizer[ExecMetaDataBase] 
           }
           
           ForkExecMetaData (comp)
+          
         case ExecMetaDataBase.APP =>
           AppExecMetaData ()
+          
+        case ExecMetaDataBase.DAGULAR =>
+          val schemaCode : String = obj.fields.get("code") match {
+            case Some(JsString(i)) => i
+            case Some(m) => throw new DeserializationException(s"'schema code must be string found $m")
+            case None => "."
+          }
+        
+          DagularExecMetaData(schemaCode)
           
         case ExecMetaDataBase.BLACKBOX =>
           val image: ImageName = obj.fields.get("image") match {

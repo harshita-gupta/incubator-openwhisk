@@ -71,6 +71,8 @@ case class WhiskActionPut(exec: Option[Exec] = None,
           FullyQualifiedEntityName(c.path.resolveNamespace(userNamespace), c.name)
         })
         WhiskActionPut(Some(newExec), parameters, limits, version, publish, annotations)
+      // XXXdagular if we wanted to be statically checked, here's where we might put
+      // type checking or dependency resolution
       case _ => this
     } getOrElse this
   }

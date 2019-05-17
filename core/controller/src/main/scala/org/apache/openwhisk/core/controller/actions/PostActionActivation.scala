@@ -70,6 +70,15 @@ protected[core] trait PostActionActivation extends PrimitiveActions with Sequenc
         System.out.println (s"After ProjectionExecMetaData")
         System.out.println (s"Components are $components")
         invokeFork(user, action, payload, waitForResponse, cause)
+
+      // XXXdagular
+      case None if action.exec.isInstanceOf[DagularExecMetaData] =>
+        System.out.println (s"PostActionActivation: invokeDagular")
+        val DagularExecMetaData(components) = action.exec
+        System.out.println (s"After DagularExecMetaData")
+        System.out.println (s"Components are $components")
+        invokeDagular(user, action, payload, waitForResponse, cause)
+
       // this is a topmost sequence
       case None =>
         val SequenceExecMetaData(components) = action.exec

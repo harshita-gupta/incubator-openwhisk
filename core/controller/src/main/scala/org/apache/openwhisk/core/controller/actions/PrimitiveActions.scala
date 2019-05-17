@@ -342,7 +342,69 @@ protected[actions] trait PrimitiveActions {
             //~ ActivationResponse.applicationError(compositionComponentNotAccessible(next.asString))
         //~ }
   }
+
+  protected[actions] def invokeDagular(
+    user: Identity,
+    action: WhiskActionMetaData,
+    payload: Option[JsObject],
+    waitForResponse: Option[FiniteDuration],
+    cause: Option[ActivationId])(implicit transid: TransactionId): Future[Either[ActivationId, WhiskActivation]] = {
+      
+      val context = UserContext(user)
+      
+      val start = Instant.now(Clock.systemUTC())
+      
+      System.out.println (s"invoke dagular")
+      val DagularExecMetaData(code) = action.exec
+      System.out.println (s"invokeDagular: program is $code")
+      
+      val dagInput = payload.getOrElse(JsObject.empty)
+      val dslResult = (new DagularDSL).apply(code, dagInput)
+      System.out.println (s"invokeDagular: dslResult: $dslResult for code $code and payload $dagInput")
+      
+      val end = Instant.now(Clock.systemUTC())
   
+      // create the whisk activation
+      val activation = WhiskActivation(
+        namespace = user.namespace.name.toPath,
+        name = action.name,
+        user.subject,
+        activationId = activationIdFactory.make(),
+        start = start,
+        end = end,
+        cause = cause,
+        response = ActivationResponse.success(Option(dslResult)),
+        version = action.version,
+        publish = false,
+        //~ annotations = Parameters(WhiskActivation.topmostAnnotation, JsBoolean(session.cause.isEmpty)) ++
+          //~ Parameters(WhiskActivation.pathAnnotation, JsString(session.action.fullyQualifiedName(false).asString)) ++
+          //~ Parameters(WhiskActivation.kindAnnotation, JsString(Exec.SEQUENCE)) ++
+          //~ Parameters(WhiskActivation.conductorAnnotation, JsBoolean(true)) ++
+          //~ causedBy ++
+          //~ sequenceLimits,
+        duration = Some(end.getEpochSecond() - start.getEpochSecond()))
+  
+      if (UserEvents.enabled) {
+        EventMessage.from(activation, s"recording activation '${activation.activationId}'", user.namespace.uuid) match {
+          case Success(msg) => UserEvents.send(producer, msg)
+          case Failure(t)   => logging.warn(this, s"activation event was not sent: $t")
+        }
+      }
+      activationStore.storeAfterCheck(activation, context)(transid, notifier = None)
+  
+      Future.successful (Right(activation))
+      
+            //~ .recover {
+              //~ case _ =>
+                //~ // resolution failure
+                //~ ActivationResponse.applicationError(compositionComponentNotFound(next.asString))
+            //~ }
+        //~ .recover {
+          //~ case _ =>
+            //~ // failed entitlement check
+            //~ ActivationResponse.applicationError(compositionComponentNotAccessible(next.asString))
+        //~ }
+  }
 
   /**
    * A method that knows how to invoke a single primitive action or a composition.
