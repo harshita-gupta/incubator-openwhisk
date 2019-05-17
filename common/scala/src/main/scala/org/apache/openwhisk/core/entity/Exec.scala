@@ -280,17 +280,17 @@ protected[core] case class ForkExec (components: Vector[FullyQualifiedEntityName
 }
 
 // XXXdagular
-protected[core] case class DagularExecMetaData(code: String) extends ExecMetaDataBase {
+protected[core] case class DagularExecMetaData(prog: Map [String, JsValue]) extends ExecMetaDataBase {
   override val kind = ExecMetaDataBase.DAGULAR
   override val deprecated = false
-  override def size = code.sizeInBytes
+  override def size = 0.B // not sure how this should be measured
 }
 
 // XXXdagular
-protected[core] case class DagularExec (code: String) extends Exec {
+protected[core] case class DagularExec (prog: Map [String, JsValue]) extends Exec {
   override val kind = Exec.DAGULAR
   override val deprecated = false
-  override def size = code.sizeInBytes
+  override def size = 0.B // not sure how this should be measured
 }
 
 
@@ -351,8 +351,8 @@ protected[core] object Exec extends ArgNormalizer[Exec] with DefaultJsonProtocol
         JsObject("kind" -> JsString(a.kind))
       
       // XXXdagular
-      case d @ DagularExec (code) =>
-        JsObject("kind" -> JsString(d.kind), "code" -> JsString(code))
+      case d @ DagularExec (prog) =>
+        JsObject("kind" -> JsString(d.kind), "prog" -> JsObject(prog))
         
 
       case b: BlackBoxExec =>
@@ -419,12 +419,12 @@ protected[core] object Exec extends ArgNormalizer[Exec] with DefaultJsonProtocol
           AppExec()
           
         case Exec.DAGULAR =>
-          val schemaCode : String = obj.fields.get("code") match {
-            case Some(JsString(t)) => t
-            case Some(m) => throw new DeserializationException(s"'schema code must be string found $m")
-            case None => "."
+          val prog : Map [String, JsValue] = obj.fields.get("prog") match {
+            case Some(JsObject(t)) => t
+            case Some(m) => throw new DeserializationException(s"'dagular prog must be JsObject found $m")
+            case None => Map [String, JsValue] ()
           }
-          DagularExec(schemaCode)
+          DagularExec(prog)
 
         case Exec.BLACKBOX =>
           val image: ImageName = obj.fields.get("image") match {
@@ -539,9 +539,9 @@ protected[core] object ExecMetaDataBase extends ArgNormalizer[ExecMetaDataBase] 
       case a @ AppExecMetaData () =>
         JsObject("kind" -> JsString(a.kind))
       
-      case p @ DagularExecMetaData (code) =>
+      case p @ DagularExecMetaData (prog) =>
         JsObject("kind" -> JsString(p.kind),
-                 "code" -> JsString(code))
+                 "prog" -> JsObject(prog))
 
       case b: BlackBoxExecMetaData =>
         val base =
@@ -617,13 +617,13 @@ protected[core] object ExecMetaDataBase extends ArgNormalizer[ExecMetaDataBase] 
           AppExecMetaData ()
           
         case ExecMetaDataBase.DAGULAR =>
-          val schemaCode : String = obj.fields.get("code") match {
-            case Some(JsString(i)) => i
-            case Some(m) => throw new DeserializationException(s"'schema code must be string found $m")
-            case None => "."
+          val prog : Map [String, JsValue] = obj.fields.get("prog") match {
+            case Some(JsObject(i)) => i
+            case Some(m) => throw new DeserializationException(s"'dagular prog must be JsObject found $m")
+            case None => Map [String, JsValue] ()
           }
         
-          DagularExecMetaData(schemaCode)
+          DagularExecMetaData(prog)
           
         case ExecMetaDataBase.BLACKBOX =>
           val image: ImageName = obj.fields.get("image") match {

@@ -28,6 +28,7 @@ import org.apache.openwhisk.common.{Logging, LoggingMarkers, TransactionId, User
 import org.apache.openwhisk.core.connector.{ActivationMessage, EventMessage, MessagingProvider}
 import org.apache.openwhisk.core.controller.WhiskServices
 import org.apache.openwhisk.core.controller.ProjectionDSL
+import org.apache.openwhisk.core.controller.DagularDSL
 import org.apache.openwhisk.core.database.{ActivationStore, NoDocumentException, UserContext}
 import org.apache.openwhisk.core.entitlement.{Resource, _}
 import org.apache.openwhisk.core.entity.ActivationResponse.ERROR_FIELD
