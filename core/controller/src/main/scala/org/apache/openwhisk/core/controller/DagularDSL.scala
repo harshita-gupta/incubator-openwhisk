@@ -10,8 +10,8 @@ package org.apache.openwhisk.core.controller
 import spray.json._
 
 sealed class DagularDSL () {
-  def apply (prog : Map [String, JsValue], jsValue : JsValue) : JsValue = {
+  def apply (prog : String, jsValue : JsValue) : JsValue = {
     System.out.println(s"we made it\n")
-    JsObject (("out"-> JsString("hello, world!")))
+    JsObject (("prog"-> JsString(prog)))
   }
 }
