@@ -30,7 +30,7 @@ import org.apache.openwhisk.core.controller.WhiskServices
 import org.apache.openwhisk.core.entity._
 import org.apache.openwhisk.http.Messages
 
-protected[core] trait PostActionActivation extends PrimitiveActions with SequenceActions {
+protected[core] trait PostActionActivation extends PrimitiveActions with SequenceActions with DagularActions {
   /** The core collections require backend services to be injected in this trait. */
   services: WhiskServices =>
 

@@ -351,7 +351,7 @@ protected[actions] trait SequenceActions {
             val updatedAccount = accounting.fail(ActivationResponse.applicationError(compositionComponentNotFound(next)), None)
             Future.failed(FailedSequenceActivation(updatedAccount))
           } else {
-            val nextAction = nameToActions(next)
+            val nextAction = nameToActions(next) // XXXdagular why in the god damn fuck is this implemented like this
             invokeNextAction(user, nextAction, accounting, cause).flatMap(iterateProgramAction(_))
           }
         } else {
