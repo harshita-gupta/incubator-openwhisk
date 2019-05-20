@@ -18,18 +18,15 @@
 package org.apache.openwhisk.core.controller.actions
 
 import java.time.{Clock, Instant}
-import java.util.concurrent.atomic.AtomicReference
 
 import akka.actor.ActorSystem
 import spray.json._
 import org.apache.openwhisk.common.{Logging, TransactionId, UserEvents}
 import org.apache.openwhisk.core.connector.{EventMessage, MessagingProvider}
 import org.apache.openwhisk.core.controller.WhiskServices
-import org.apache.openwhisk.core.controller.DagularDSL
 import org.apache.openwhisk.core.database.{ActivationStore, UserContext}
 import org.apache.openwhisk.core.entity._
 import org.apache.openwhisk.core.entity.types._
-import org.apache.openwhisk.http.Messages._
 import org.apache.openwhisk.spi.SpiLoader
 
 import scala.collection._
@@ -93,28 +90,30 @@ protected[actions] trait DagularActions {
       val end = Instant.now(Clock.systemUTC())
   
       // create the whisk activation for the final result
-      val activation = WhiskActivation(
-        namespace = user.namespace.name.toPath,
-        name = action.name,
-        user.subject,
-        activationId = activationIdFactory.make(),
-        start = start,
-        end = end,
-        cause = cause,
-        response = ActivationResponse.success(Option(result)),
-        version = action.version,
-        publish = false,
-        duration = Some(end.getEpochSecond() - start.getEpochSecond()))
-  
-      if (UserEvents.enabled) {
-        EventMessage.from(activation, s"recording activation '${activation.activationId}'", user.namespace.uuid) match {
-          case Success(msg) => UserEvents.send(producer, msg)
-          case Failure(t)   => logging.warn(this, s"activation event was not sent: $t")
+      result map { result =>
+        val activation = WhiskActivation(
+          namespace = user.namespace.name.toPath,
+          name = action.name,
+          user.subject,
+          activationId = activationIdFactory.make(),
+          start = start,
+          end = end,
+          cause = cause,
+          response = ActivationResponse.success(Option(result)),
+          version = action.version,
+          publish = false,
+          duration = Some(end.getEpochSecond() - start.getEpochSecond()))
+    
+        if (UserEvents.enabled) {
+          EventMessage.from(activation, s"recording activation '${activation.activationId}'", user.namespace.uuid) match {
+            case Success(msg) => UserEvents.send(producer, msg)
+            case Failure(t)   => logging.warn(this, s"activation event was not sent: $t")
+          }
         }
+        activationStore.storeAfterCheck(activation, context)(transid, notifier = None)
+    
+        Right(activation)
       }
-      activationStore.storeAfterCheck(activation, context)(transid, notifier = None)
-  
-      Future.successful (Right(activation))
   }
   
   // AST nodes after slight decode
@@ -124,10 +123,10 @@ protected[actions] trait DagularActions {
   
   private abstract class DagularValue {
     // this future will only finish once all the components of this DagularValue finish
-    override def toJsValue () : Future[JsValue]
+    def toJsValue () : Future[JsValue]
   }
   private case class DagularAtom(v : JsValue) extends DagularValue {
-    def toJsValue () = Future { v }
+    override def toJsValue () = Future { v }
   }
   private case class DagularArray(v : Vector[Future[DagularValue]]) extends DagularValue {
     def toJsValue () = Future.sequence(v.map(_ flatMap {_.toJsValue()})) map {JsArray(_)}
@@ -375,93 +374,63 @@ protected[actions] trait DagularActions {
               
               op match {
                 case "or" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsBoolean(left)), DagularAtom(JsBoolean(right))) =>
-                        DagularAtom(JsBoolean(left || right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsBoolean(left)), DagularAtom(JsBoolean(right))) =>
+                      DagularAtom(JsBoolean(left || right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "and" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsBoolean(left)), DagularAtom(JsBoolean(right))) =>
-                        DagularAtom(JsBoolean(left && right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsBoolean(left)), DagularAtom(JsBoolean(right))) =>
+                      DagularAtom(JsBoolean(left && right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "<" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsBoolean(left < right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsBoolean(left < right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case ">" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsBoolean(left > right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsBoolean(left > right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case ">=" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsBoolean(left >= right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsBoolean(left >= right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "<=" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsBoolean(left <= right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsBoolean(left <= right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "==" => {
@@ -483,78 +452,53 @@ protected[actions] trait DagularActions {
                 }
                 
                 case "+" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsNumber(left + right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsNumber(left + right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "-" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsNumber(left - right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsNumber(left - right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "*" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsNumber(left * right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsNumber(left * right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "/" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsNumber(left / right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsNumber(left / right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case "%" => {
-                  for {
-                    left_val <- left
-                    right_val <- right
-                  } yield {
-                    (left_val, right_val) match {
-                      case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
-                        DagularAtom(JsNumber(left % right))
-                      
-                      case _ =>
-                        throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
-                    }
-                  }
+                  mapAtom2(left, right, {
+                    case (DagularAtom(JsNumber(left)), DagularAtom(JsNumber(right))) =>
+                      DagularAtom(JsNumber(left % right))
+                    
+                    case _ =>
+                      throw new IllegalArgumentException(s"dagular interpret got unexpected dagular non-atom in binop $op")
+                  })
                 }
                 
                 case s => {
@@ -665,12 +609,12 @@ protected[actions] trait DagularActions {
             case "block_expr" => { // [assign1, assign2, ..., return]
               // interpret series of assignments
               
-              val new_env = children.dropRight(1).foldRight(env)({(_, _) match {
-                case (DagularNode("assign", assign_children), env) => // [leaf, expr]
+              val new_env = children.dropRight(1).foldRight(env)({(node, env) => node match {
+                case DagularNode("assign", assign_children) => // [leaf, expr]
                   val DagularLeaf(JsString(id)) = assign_children(0)
                   env + (id -> interpretDagular(assign_children(1), env))
                   
-                case (DagularNode(s, _), _) =>
+                case DagularNode(s, _) =>
                   throw new IllegalArgumentException (s"dagular interpret found $s inside block")
               }})
               
@@ -697,145 +641,45 @@ protected[actions] trait DagularActions {
     
     // call a serverless function and coerce result as JsObject
     private def interpretInvocation(name : String, payload : JsObject) : Future[JsObject] = {
-      //first get the "fully qualified entity name": FullyQualifiedEntityName.serdes.read(jsvalue name)
-      /*
-       * fork does this
-       * val next = components (0).fullPath
-        // resolve and invoke next action
-        val fqn = (if (next.defaultPackage) EntityPath.DEFAULT.addPath(next) else next)
-          .resolveNamespace(user.namespace)
-          .toFullyQualifiedEntityName
-        val resource = Resource(fqn.path, Collection(Collection.ACTIONS), Some(fqn.name.asString))
-       */
-      /* seq does this
-       * val resolvedFutureActions = resolveDefaultNamespace(components, user) map { c =>
-        WhiskActionMetaData.resolveActionAndMergeParameters(entityStore, c)
-      }
-       */
-    }
-  }
-}
+      logging.info(this, s"dagular is invoking an action called $name")
 
-/**
- * Cumulative accounting of what happened during the execution of a sequence.
- *
- * @param atomicActionCnt the current count of non-sequence (c.f. atomic) actions already invoked
- * @param previousResponse a reference to the previous activation result which will be nulled out
- *        when no longer needed (see previousResponse.getAndSet(null) below)
- * @param logs a mutable buffer that is appended with new activation ids as the sequence unfolds
- * @param duration the "user" time so far executing the sequence (sum of durations for
- *        all actions invoked so far which is different from the total time spent executing the sequence)
- * @param maxMemory the maximum memory annotation observed so far for the
- *        components (needed to annotate the sequence with GB-s)
- * @param shortcircuit when true, stops the execution of the next component in the sequence
- */
-protected[actions] case class DagularAccounting(atomicActionCnt: Int,
-                                                 previousResponse: AtomicReference[ActivationResponse],
-                                                 logs: mutable.Buffer[ActivationId],
-                                                 duration: Long = 0,
-                                                 maxMemory: Option[Int] = None,
-                                                 shortcircuit: Boolean = false) {
+      // this is what's done to resolve an action name
+      val fqn = FullyQualifiedEntityName.serdes.read(JsString(name))
+      val fqn_default_namespace = FullyQualifiedEntityName(fqn.path.resolveNamespace(user.namespace), fqn.name)
+      val action_future = WhiskActionMetaData.resolveActionAndMergeParameters(entityStore, fqn_default_namespace)
+      
+      // now that we have obtained the future for the action, we can run it
+      action_future flatMap { action =>
+        logging.info(this, s"dagular got a future for action called $name")
+      
+        val timeout = action.limits.timeout.duration + 1.minute
+        val future_whisk_activation = invokeAction(user, action, Some(payload), waitForResponse = Some(timeout), cause)
+        
+        // see what the result is
+        future_whisk_activation flatMap {
+          case Right(activation) => {
+            // success?
+            val output = activation.response.result.map(_.asJsObject).getOrElse(JsObject.empty)
+            val error = output.fields.get(ActivationResponse.ERROR_FIELD)
+            
+            if (error.isEmpty) {
+              // dump the output value
+              val JsObject(map) = output
+              Future.successful(map.getOrElse("output", JsObject.empty).asJsObject)
+            } else {
+              // throw an exception and let it ride
+              logging.error(this, s"dagular activation ${activation.activationId} encountered error")
+              Future.failed(new IllegalArgumentException(s"dagular activation ${activation.activationId} encountered error"))
+            }
+          }
 
-  /** @return the ActivationLogs data structure for this sequence invocation */
-  def finalLogs = ActivationLogs(logs.map(id => id.asString).toVector)
-
-  /** The previous activation was successful. */
-  private def success(activation: WhiskActivation, newCnt: Int, shortcircuit: Boolean = false) = {
-    previousResponse.set(null)
-    DagularAccounting(
-      prev = this,
-      newCnt = newCnt,
-      shortcircuit = shortcircuit,
-      incrDuration = activation.duration,
-      newResponse = activation.response,
-      newActivationId = activation.activationId,
-      newMemoryLimit = activation.annotations.get("limits") map { limitsAnnotation => // we have a limits annotation
-        limitsAnnotation.asJsObject.getFields("memory") match {
-          case Seq(JsNumber(memory)) =>
-            Some(memory.toInt) // we have a numerical "memory" field in the "limits" annotation
+          case Left(activationId) => {
+            // let an exception ride
+            logging.error(this, s"dagular activation $activationId timed out")
+            Future.failed(new IllegalArgumentException(s"dagular activation $activationId timed out"))
+          }
         }
-      } getOrElse { None })
-  }
-
-  /** The previous activation failed (this is used when there is no activation record or an internal error. */
-  def fail(failureResponse: ActivationResponse, activationId: Option[ActivationId]) = {
-    require(!failureResponse.isSuccess)
-    logs.appendAll(activationId)
-    copy(previousResponse = new AtomicReference(failureResponse), shortcircuit = true)
-  }
-
-  /** Determines whether the previous activation succeeded or failed. */
-  def maybe(activation: WhiskActivation, newCnt: Int, maxSequenceCnt: Int) = {
-    // check conditions on payload that may lead to interrupting the execution of the sequence
-    //     short-circuit the execution of the sequence iff the payload contains an error field
-    //     and is the result of an action return, not the initial payload
-    val outputPayload = activation.response.result.map(_.asJsObject)
-    val payloadContent = outputPayload getOrElse JsObject.empty
-    val errorField = payloadContent.fields.get(ActivationResponse.ERROR_FIELD)
-    val withinSeqLimit = newCnt <= maxSequenceCnt
-
-    if (withinSeqLimit && errorField.isEmpty) {
-      // all good with this action invocation
-      success(activation, newCnt)
-    } else {
-      val nextActivation = if (!withinSeqLimit) {
-        // no error in the activation but the dynamic count of actions exceeds the threshold
-        // this is here as defensive code; the activation should not occur if its takes the
-        // count above its limit
-        val newResponse = ActivationResponse.applicationError(sequenceIsTooLong)
-        activation.copy(response = newResponse)
-      } else {
-        assert(errorField.isDefined)
-        activation
       }
-
-      // there is an error field in the activation response. here, we treat this like success,
-      // in the sense of tallying up the accounting fields, but terminate the sequence early
-      success(nextActivation, newCnt, shortcircuit = true)
     }
   }
 }
-
-/**
- *  Three constructors for DagularAccounting:
- *     - one for successful invocation of an action in the sequence,
- *     - one for failed invocation, and
- *     - one to initialize things
- */
-protected[actions] object DagularAccounting {
-
-  def maxMemory(prevMemoryLimit: Option[Int], newMemoryLimit: Option[Int]): Option[Int] = {
-    (prevMemoryLimit ++ newMemoryLimit).reduceOption(Math.max)
-  }
-
-  // constructor for successful invocations, or error'ing ones (where shortcircuit = true)
-  def apply(prev: DagularAccounting,
-            newCnt: Int,
-            incrDuration: Option[Long],
-            newResponse: ActivationResponse,
-            newActivationId: ActivationId,
-            newMemoryLimit: Option[Int],
-            shortcircuit: Boolean): DagularAccounting = {
-
-    // compute the new max memory
-    val newMaxMemory = maxMemory(prev.maxMemory, newMemoryLimit)
-
-    // append log entry
-    prev.logs += newActivationId
-
-    DagularAccounting(
-      atomicActionCnt = newCnt,
-      previousResponse = new AtomicReference(newResponse),
-      logs = prev.logs,
-      duration = incrDuration map { prev.duration + _ } getOrElse { prev.duration },
-      maxMemory = newMaxMemory,
-      shortcircuit = shortcircuit)
-  }
-
-  // constructor for initial payload
-  def apply(atomicActionCnt: Int, initialPayload: ActivationResponse): DagularAccounting = {
-    DagularAccounting(atomicActionCnt, new AtomicReference(initialPayload), mutable.Buffer.empty)
-  }
-}
-
-protected[actions] case class FailedDagularActivation(accounting: DagularAccounting) extends Throwable
