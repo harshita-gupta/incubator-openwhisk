@@ -220,6 +220,10 @@ protected[actions] trait DagularActions {
           needs_children(data, 3, children map jsonToDagularAST)
         }
         
+        case "map_expr" => { // [id, list_expr, body_expr]
+          DagularNode(data, Vector(DagularLeaf(children(0)), jsonToDagularAST(children(1)), jsonToDagularAST(children(2))))
+        }
+        
         case "unop" => { // [op, operand]
           if (children.length != 2)
             throw new IllegalArgumentException (s"dagular parse found ${children.length} children in ${data}: expected 3")
@@ -260,10 +264,6 @@ protected[actions] trait DagularActions {
             val argument = jsonToDagularAST(children(1))
             DagularNode(data, Vector(func_name, argument))
           }
-        }
-        
-        case "comprehension" => { // [body_expr, id, list_expr]
-          needs_children(data, 3, children map jsonToDagularAST)
         }
         
         case s => {
@@ -565,17 +565,17 @@ protected[actions] trait DagularActions {
               }
             }
             
-            case "comprehension" => { // [body_expr, id, list_expr]
-              val DagularLeaf(JsString(id)) = children(1)
-              interpretDagular(children(2), env) map {
+            case "map_expr" => { // [id, list_expr, body_expr]
+              val DagularLeaf(JsString(id)) = children(0)
+              interpretDagular(children(1), env) map {
                 case DagularAtom(JsArray(arr)) =>
-                  DagularArray(arr.map({ item => interpretDagular(children(0), env + (id -> Future { DagularAtom(item) })) }))
+                  DagularArray(arr.map({ item => interpretDagular(children(2), env + (id -> Future { DagularAtom(item) })) }))
                   
                 case DagularAtom(_) =>
                   throw new IllegalArgumentException (s"dagular interpret found non-array as comprehension argument")
                   
                 case DagularArray(arr) =>
-                  DagularArray(arr.map({ item => interpretDagular(children(0), env + (id -> item)) }))
+                  DagularArray(arr.map({ item => interpretDagular(children(2), env + (id -> item)) }))
                   
                 case DagularObject(_) =>
                   throw new IllegalArgumentException (s"dagular interpret found object as comprehension argument")
